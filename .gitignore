@@ -1,0 +1,10 @@
+data/raw/
+data/processed/
+__pycache__/
+.venv/
+.pytest_cache/
+*.parquet
+.DS_Store
+data/models/
+.DS_Store
+data/models/
