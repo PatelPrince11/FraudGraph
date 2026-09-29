@@ -97,3 +97,19 @@ class TxnRow(BaseModel):
 class AlertsOut(BaseModel):
     total: int
     items: list[TxnRow]
+
+
+class ReplayStatus(BaseModel):
+    status: str                    # idle | running | done | stopped
+    sim_start: datetime | None = None
+    sim_end: datetime | None = None
+    sim_clock: datetime | None = None
+    speed: float | None = None
+    processed: int = 0
+    total: int = 0
+    flagged: int = 0
+    txn_per_sec: float | None = None
+    p50_ms: float | None = None
+    p95_ms: float | None = None
+    lag_s: float | None = None
+    updated_at: datetime | None = None

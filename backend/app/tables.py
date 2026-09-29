@@ -72,3 +72,29 @@ overlay_rings = Table(
     Column("ring_id", BigInteger, nullable=False),
     Column("ring_size", SmallInteger, nullable=False),
 )
+
+# --- Replay (scripts/replay.py) --------------------------------------------------
+# Transactions that haven't "arrived" yet. Same columns as `transactions`; replay moves
+# each row from here into `transactions` when the simulated clock reaches it.
+replay_pending = Table(
+    "replay_pending", metadata,
+    *[Column(c.name, c.type, primary_key=c.primary_key, nullable=c.nullable)
+      for c in transactions.columns],
+    Index("ix_pending_order", "ts", "seq"),   # replay reads in (time, file order)
+)
+
+# Progress of the current replay, one row (id=1). Written by the replay script,
+# read by the API, so the dashboard can show live progress from another process.
+replay_state = Table(
+    "replay_state", metadata,
+    Column("id", SmallInteger, primary_key=True),
+    Column("status", String(10), nullable=False),   # running | done | stopped
+    Column("sim_start", DateTime), Column("sim_end", DateTime), Column("sim_clock", DateTime),
+    Column("speed", Float),
+    Column("processed", BigInteger, nullable=False),
+    Column("total", BigInteger, nullable=False),
+    Column("flagged", BigInteger, nullable=False),
+    Column("txn_per_sec", Float), Column("p50_ms", Float), Column("p95_ms", Float),
+    Column("lag_s", Float),
+    Column("updated_at", DateTime, nullable=False),
+)

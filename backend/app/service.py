@@ -11,10 +11,12 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import Connection, and_, or_, select
+from sqlalchemy import Connection, and_, func, insert, or_, select
 
 from app.features import FEATURE_COLS, build_features
 from app.model import FraudModel, _jsonable
+from app.tables import COLUMNS
+from app.tables import scores as S
 from app.tables import transactions as T
 
 
@@ -83,4 +85,31 @@ def score_existing(conn: Connection, model: FraudModel, trans_num: str) -> dict:
     result = score(conn, model, txn, seq=txn["seq"])
     label = txn.get("is_fraud")
     result["label_is_fraud"] = None if label is None or np.isnan(label) else bool(label)
+    return result
+
+
+def ingest(conn: Connection, model: FraudModel, txn: dict) -> dict:
+    """A new transaction arrives: score it FIRST, then save it (with its score).
+
+    The order matters. For a new transaction, fetch_history reads everything up to
+    and including its timestamp. If it were saved first, it would be part of its own
+    history: it would look like a second charge at the same second (secs_since_last = 0,
+    an extreme burst), add one to the card's history count, and pull the card's
+    "normal" amount toward itself. Training never saw that, so scores would silently
+    drift (training/serving skew). tests/test_replay.py shows it.
+
+    The caller owns the database transaction, so the row and its score are committed
+    together or not at all.
+    """
+    result = score(conn, model, txn, seq=None)
+    row = {c: txn.get(c) for c in COLUMNS}
+    row["trans_num"] = result["trans_num"]
+    row["ts"] = pd.Timestamp(txn["ts"]).to_pydatetime()
+    if row["seq"] is None:
+        # Brand-new transaction: next number in arrival order. Safe with ONE writer;
+        # concurrent writers would need a database sequence instead.
+        row["seq"] = conn.execute(select(func.coalesce(func.max(T.c.seq), -1) + 1)).scalar_one()
+    conn.execute(insert(T), [row])
+    conn.execute(insert(S), [{"trans_num": result["trans_num"], "score": result["score"],
+                              "flagged": int(result["flagged"])}])
     return result

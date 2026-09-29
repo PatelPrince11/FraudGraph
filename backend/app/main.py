@@ -7,12 +7,14 @@ Run locally:  uvicorn app.main:app --reload   (from backend/)
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, select, text
+from sqlalchemy.exc import DBAPIError
 
 from app import graph, queries, service
 from app.db import get_engine
 from app.model import FraudModel
-from app.schemas import AlertsOut, GraphOut, RiskOut, TransactionIn, TxnRow
+from app.schemas import AlertsOut, GraphOut, ReplayStatus, RiskOut, TransactionIn, TxnRow
+from app.tables import replay_state
 
 
 def create_app(engine: Engine | None = None, model: FraudModel | None = None) -> FastAPI:
@@ -75,6 +77,16 @@ def create_app(engine: Engine | None = None, model: FraudModel | None = None) ->
         if rows is None:
             raise HTTPException(404, f"transaction {trans_num} not found")
         return rows
+
+    @app.get("/replay/status", response_model=ReplayStatus)
+    def replay_status(request: Request):
+        """Progress of scripts/replay.py (a separate process), read from its state row."""
+        with request.app.state.engine.connect() as conn:
+            try:
+                row = conn.execute(select(replay_state)).mappings().first()
+            except DBAPIError:  # table not created yet: replay has never run
+                return {"status": "idle"}
+        return {**row} if row else {"status": "idle"}
 
     return app
 
