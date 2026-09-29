@@ -24,10 +24,33 @@ export type TxnRow = {
   amt: number;
   category: string;
   merchant: string;
+  merch_lat: number;
+  merch_long: number;
   score: number | null;
   flagged: boolean;
   label_is_fraud: boolean | null;
+  decision: Action | null;
 };
+
+export type Action = "fraud" | "escalated" | "legit";
+
+export type Decision = { trans_num: string; action: Action | null; decided_at: string | null };
+
+export type CardSummary = {
+  cc_num: string;
+  card_label: string;
+  city: string | null;
+  state: string | null;
+  home_lat: number;
+  home_long: number;
+  age: number;
+  first_seen: string;
+  txn_count: number;
+  alert_count: number;
+  avg_amt: number;
+};
+
+export type Follow = "flagged" | "rule" | "either" | "all";
 
 export type Alerts = { total: number; items: TxnRow[] };
 
@@ -42,6 +65,8 @@ export type GraphNode = {
   labeled_fraud_txns: number | null;
   hub: boolean | null;
   cards_in_window: number | null;
+  rule_hit: boolean | null;
+  max_cards_24h: number | null;
 };
 
 export type GraphEdge = { source: string; target: string; kind: string; txn_count: number; flagged_txns: number };
@@ -58,6 +83,7 @@ export type Graph = {
     labeled_fraud_cards: number;
     shared_entities: number;
     hubs_not_expanded: number;
+    rule_devices: number;
     truncated: boolean;
     latency_ms: number;
   };

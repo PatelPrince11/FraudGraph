@@ -13,8 +13,9 @@ from sqlalchemy.exc import DBAPIError
 from app import graph, queries, service
 from app.db import get_engine
 from app.model import FraudModel
-from app.schemas import AlertsOut, GraphOut, ReplayStatus, RiskOut, TransactionIn, TxnRow
-from app.tables import replay_state
+from app.schemas import (AlertsOut, CardSummary, DecisionIn, DecisionOut, GraphOut,
+                         ReplayStatus, RiskOut, TransactionIn, TxnRow)
+from app.tables import decisions, metadata, replay_state
 
 
 def create_app(engine: Engine | None = None, model: FraudModel | None = None) -> FastAPI:
@@ -23,6 +24,8 @@ def create_app(engine: Engine | None = None, model: FraudModel | None = None) ->
         # Load once at startup, not per request: model load is ~100ms+.
         app.state.engine = engine or get_engine()
         app.state.model = model or FraudModel.load()
+        # Decisions are new in this version; create the table if this DB predates it.
+        metadata.create_all(app.state.engine, tables=[decisions])
         yield
         app.state.engine.dispose()
 
@@ -53,7 +56,7 @@ def create_app(engine: Engine | None = None, model: FraudModel | None = None) ->
     def relationship_graph(trans_num: str, request: Request,
                            days: int = Query(30, ge=1, le=90),
                            rounds: int = Query(2, ge=1, le=3),
-                           follow: str = Query("flagged", pattern="^(flagged|all)$")):
+                           follow: str = Query("either", pattern="^(flagged|rule|either|all)$")):
         with request.app.state.engine.connect() as conn:
             try:
                 return graph.investigate(conn, trans_num, days=days, rounds=rounds,
@@ -65,10 +68,12 @@ def create_app(engine: Engine | None = None, model: FraudModel | None = None) ->
     def alert_queue(request: Request,
                     split: str = Query("test", pattern="^(train|test)$"),
                     sort: str = Query("score", pattern="^(score|recent)$"),
+                    status: str = Query("all", pattern="^(all|open|decided)$"),
                     limit: int = Query(50, ge=1, le=200),
                     offset: int = Query(0, ge=0)):
         with request.app.state.engine.connect() as conn:
-            return queries.alerts(conn, split=split, sort=sort, limit=limit, offset=offset)
+            return queries.alerts(conn, split=split, sort=sort, status=status,
+                                  limit=limit, offset=offset)
 
     @app.get("/transactions/{trans_num}/history", response_model=list[TxnRow])
     def history(trans_num: str, request: Request, limit: int = Query(15, ge=1, le=100)):
@@ -77,6 +82,26 @@ def create_app(engine: Engine | None = None, model: FraudModel | None = None) ->
         if rows is None:
             raise HTTPException(404, f"transaction {trans_num} not found")
         return rows
+
+    @app.get("/transactions/{trans_num}/card", response_model=CardSummary)
+    def card(trans_num: str, request: Request):
+        with request.app.state.engine.connect() as conn:
+            summary = queries.card_summary(conn, trans_num)
+        if summary is None:
+            raise HTTPException(404, f"transaction {trans_num} not found")
+        return summary
+
+    @app.get("/transactions/{trans_num}/decision", response_model=DecisionOut)
+    def get_decision(trans_num: str, request: Request):
+        with request.app.state.engine.connect() as conn:
+            return queries.get_decision(conn, trans_num)
+
+    @app.post("/transactions/{trans_num}/decision", response_model=DecisionOut)
+    def set_decision(trans_num: str, body: DecisionIn, request: Request):
+        with request.app.state.engine.begin() as conn:  # begin() = commit on success
+            if not queries.exists(conn, trans_num):
+                raise HTTPException(404, f"transaction {trans_num} not found")
+            return queries.set_decision(conn, trans_num, body.action)
 
     @app.get("/replay/status", response_model=ReplayStatus)
     def replay_status(request: Request):

@@ -2,6 +2,8 @@
 requests with a 422 before our code runs, and generates /docs from them."""
 from datetime import date, datetime
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -52,6 +54,8 @@ class GraphNode(BaseModel):
     labeled_fraud_txns: int | None = None  # ground truth: demo/eval only, not known at time t
     hub: bool | None = None
     cards_in_window: int | None = None
+    rule_hit: bool | None = None         # device used by 3+ cards within 24h
+    max_cards_24h: int | None = None
 
 
 class GraphEdge(BaseModel):
@@ -68,6 +72,7 @@ class GraphSummary(BaseModel):
     labeled_fraud_cards: int
     shared_entities: int
     hubs_not_expanded: int
+    rule_devices: int
     truncated: bool
     latency_ms: float
 
@@ -89,9 +94,12 @@ class TxnRow(BaseModel):
     amt: float
     category: str
     merchant: str
+    merch_lat: float
+    merch_long: float
     score: float | None
     flagged: bool
     label_is_fraud: bool | None
+    decision: str | None = None
 
 
 class AlertsOut(BaseModel):
@@ -113,3 +121,27 @@ class ReplayStatus(BaseModel):
     p95_ms: float | None = None
     lag_s: float | None = None
     updated_at: datetime | None = None
+
+
+class CardSummary(BaseModel):
+    cc_num: str
+    card_label: str
+    city: str | None
+    state: str | None
+    home_lat: float
+    home_long: float
+    age: int
+    first_seen: datetime
+    txn_count: int                 # up to and including the alert
+    alert_count: int
+    avg_amt: float
+
+
+class DecisionIn(BaseModel):
+    action: Literal["fraud", "escalated", "legit"] | None   # None clears it
+
+
+class DecisionOut(BaseModel):
+    trans_num: str
+    action: str | None
+    decided_at: datetime | None

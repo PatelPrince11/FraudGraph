@@ -98,3 +98,12 @@ replay_state = Table(
     Column("lag_s", Float),
     Column("updated_at", DateTime, nullable=False),
 )
+
+# Analyst decisions on alerts. This is the feedback loop: in a real system these
+# become fresh labels for retraining, weeks before chargebacks arrive.
+decisions = Table(
+    "decisions", metadata,
+    Column("trans_num", String(32), primary_key=True),
+    Column("action", String(12), nullable=False),   # fraud | escalated | legit
+    Column("decided_at", DateTime, nullable=False),
+)

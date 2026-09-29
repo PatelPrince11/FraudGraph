@@ -26,6 +26,7 @@ seen during training or threshold selection.
 | Alerts raised | 1,713 (0.31% of transactions) |
 | Online vs offline feature parity | 300 / 300 transactions identical on all 20 features |
 | Scoring latency, full path (DB + features + model + SHAP) | p50 32 ms, p95 57 ms |
+| Live replay, one simulated day (3,648 txns, score then save) | 32 txn/s, p95 40 ms, 3,648 / 3,648 match offline scores |
 | Relationship graph on injected rings (default mode) | 81% precision, 88% recall, p95 31 ms |
 
 PR-AUC is the headline instead of ROC-AUC (0.999): at 0.4% fraud, ROC-AUC barely moves
@@ -64,9 +65,14 @@ flowchart LR
   alert queue fills in as it runs. Replayed scores are checked against the offline scores.
 - **Relationship graph** (`app/graph.py`): expands from a card to the devices/IPs it used and
   on to other cards, limited to the 30 days before the alert (no future data). Entities
-  shared by 25+ cards (public Wi-Fi, carrier IPs) are shown but not expanded. By default it
-  only follows devices/IPs that carried a flagged charge: 81% precision vs 33% when
-  following everything, for 88% vs 98% recall.
+  shared by 25+ cards (public Wi-Fi, carrier IPs) are shown but not expanded. It follows a
+  device or IP if it carried a model-flagged charge, **or** if it's a device used by 3+
+  different cards within 24 hours. That second rule ignores model scores, so the graph can
+  still find rings the model misses entirely. IPs are left out of the rule on purpose:
+  offices and mobile carriers put many honest people on one IP.
+- **Analyst decisions**: every alert can be confirmed as fraud, escalated or marked
+  legitimate. Decisions are stored in Postgres and filter the queue; in production they
+  would be fresh training labels, weeks ahead of chargebacks.
 
 ## Honest limitations
 
@@ -77,9 +83,10 @@ flowchart LR
   They live in separate tables and are never model inputs, so the model metrics above are
   unaffected. The graph metrics show the query logic works on rings with a known answer;
   they are not evidence about real-world ring detection.
-- **In default mode the graph only sees what the model sees**: if the model misses every
-  charge on a shared device, the graph can't follow that link. A model-independent rule
-  (e.g. one device used by 4+ cards in a day) would fix this and isn't built yet.
+- **The device rule is a partial safety net.** In a stress test that hides entire rings from
+  the model, the model-driven graph finds none of them and the rule recovers only part.
+  Households of three sharing a laptop are its false positives (the synthetic data includes
+  them on purpose, so the rule can't look better than it is).
 - **The threshold drifts:** it was set on a period with 0.58% fraud and raised fewer alerts
   than budgeted on the test period (0.31% vs 0.5%). Production systems re-set it from recent traffic.
 - **Serving rebuilds features from full card history**, which is most of the scoring time and
@@ -120,7 +127,7 @@ For development, run `uvicorn app.main:app --reload` in `backend/` and `npm run 
 
 ## Tests and CI
 
-`pytest` in `backend/` runs 27 tests on synthetic data. They run on SQLite by default, or on
+`pytest` in `backend/` runs 32 tests on synthetic data. They run on SQLite by default, or on
 PostgreSQL with `TEST_DATABASE_URL` set. GitHub Actions runs both on every push, plus the
 frontend typecheck and build, and builds both Docker images. The Postgres run matters: it caught
 a bug SQLite can't (money stored as `NUMERIC(12,2)` rounds amounts, so unrounded test data

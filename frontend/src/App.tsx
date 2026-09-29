@@ -2,10 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { ReplayStatus } from "./api";
 import AlertList from "./components/AlertList";
-import GraphView from "./components/GraphView";
-import HistoryTable from "./components/HistoryTable";
+import Investigation from "./components/Investigation";
 import ReplayBar from "./components/ReplayBar";
-import RiskPanel from "./components/RiskPanel";
 import { useApi } from "./useApi";
 
 /** Selected transaction lives in the URL (#<trans_num>) so a view can be linked/refreshed. */
@@ -24,43 +22,58 @@ function useSelection(): [string | null, (id: string) => void] {
   return [id, select];
 }
 
+function Logo() {
+  return (
+    <svg viewBox="0 0 32 32" className="size-9 text-risk" fill="none" stroke="currentColor" strokeWidth="2.2">
+      <circle cx="16" cy="16" r="12.5" />
+      <path d="M8.5 19.5 13 14l3.5 3.5L23.5 10" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19.5 10h4v4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function App() {
   const [selected, select] = useSelection();
   const [showTruth, setShowTruth] = useState(false);
+  const [search, setSearch] = useState("");
+  const [decisions, setDecisions] = useState(0); // bumps when an analyst saves a decision
   // Replay runs in a separate process; poll its progress every 1.5 s.
   const replay = useApi<ReplayStatus>("/replay/status", { refreshMs: 1500 }).data;
   const live = replay?.status === "running";
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-5 py-3">
+      <header className="mx-4 mt-4 flex flex-wrap items-center gap-4 rounded-2xl border border-line bg-panel px-5 py-3">
+        <Logo />
         <div>
-          <h1 className="text-base font-semibold">FraudGraph</h1>
-          <p className="text-xs text-slate-500">
-            Transaction risk investigation · Sparkov test period (simulated data)
-          </p>
+          <h1 className="text-base font-semibold tracking-tight">FraudGraph</h1>
+          <p className="text-[11px] text-faint">Transaction risk investigation · Sparkov test period (simulated)</p>
         </div>
+        <form className="ml-6 flex min-w-64 flex-1 items-center gap-2 rounded-full border border-line bg-ink px-4 py-2 md:max-w-sm"
+          onSubmit={(e) => { e.preventDefault(); if (search.trim()) select(search.trim()); }}>
+          <svg viewBox="0 0 24 24" className="size-4 text-faint" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" strokeLinecap="round" />
+          </svg>
+          <input value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Open a transaction by ID…" aria-label="Transaction ID"
+            className="w-full bg-transparent text-sm text-fg placeholder:text-faint focus:outline-none" />
+        </form>
         {replay && replay.status !== "idle" && <ReplayBar r={replay} />}
-        <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-slate-600"
+        <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted"
           title="Confirmed-fraud labels arrive weeks later via chargebacks. An analyst would not have them at alert time.">
-          <input type="checkbox" checked={showTruth} onChange={(e) => setShowTruth(e.target.checked)} />
+          <input type="checkbox" className="accent-risk" checked={showTruth} onChange={(e) => setShowTruth(e.target.checked)} />
           Show ground truth (hindsight)
         </label>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[340px_1fr] gap-3 p-3">
+      <div className="grid min-h-0 flex-1 grid-cols-[330px_1fr] gap-4 p-4">
         <AlertList selected={selected} onSelect={select} showTruth={showTruth}
-          live={live} version={replay?.updated_at} />
+          live={live} version={`${replay?.updated_at}-${decisions}`} />
         {selected ? (
-          <main className="grid min-h-0 grid-cols-[minmax(340px,420px)_1fr] grid-rows-[minmax(0,1fr)_minmax(0,1.3fr)] gap-3">
-            <RiskPanel transNum={selected} showTruth={showTruth} />
-            <HistoryTable transNum={selected} showTruth={showTruth} />
-            <div className="col-span-2 min-h-0">
-              <GraphView transNum={selected} showTruth={showTruth} />
-            </div>
-          </main>
+          <Investigation key={selected} transNum={selected} showTruth={showTruth}
+            onDecided={() => setDecisions((d) => d + 1)} />
         ) : (
-          <main className="grid place-items-center text-sm text-slate-400">Select an alert</main>
+          <main className="grid place-items-center text-sm text-faint">Select an alert</main>
         )}
       </div>
     </div>

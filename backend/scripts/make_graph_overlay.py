@@ -9,6 +9,9 @@ How the fake world works (all numbers are assumptions, tuned to look plausible):
 - Each card owns 1-2 home devices and 1-2 home IPs. Legit online purchases mostly
   use those; 10% of the time a PUBLIC IP (cafe, airport, mobile carrier) that many
   unrelated cards share. Public IPs are the realistic noise that makes graphs hard.
+- HOUSEHOLDS: 8% of cards live with 1-2 other cardholders and share the family laptop
+  and home Wi-Fi. Legitimate device sharing is exactly what a "many cards on one
+  device" rule gets wrong, so the data needs it or the rule would look perfect.
 - Compromised cards are grouped into RINGS: cards whose fraud starts around the same
   time. Each ring's attackers use a small pool of devices/IPs, so fraudulent online
   charges on different cards share entities. 20% of compromised cards act alone.
@@ -27,6 +30,8 @@ P_IP_PUBLIC, P_IP_NOISE = 0.10, 0.05
 P_RING_DEVICE, P_RING_IP = 0.80, 0.70   # fraud purchase uses the ring's own device / IP
 P_LONE = 0.20
 N_PUBLIC_IPS = 200
+P_HOUSEHOLD = 0.08       # share of cards in a multi-card household
+P_TRIPLE = 0.25          # of households: 3 cardholders instead of 2
 
 
 def _devices(rng, shape):
@@ -74,6 +79,15 @@ def generate(txns: pd.DataFrame, seed: int = 7) -> tuple[pd.DataFrame, pd.DataFr
 
     home_dev, n_dev = _devices(rng, (n_cards, 2)), rng.integers(1, 3, n_cards)
     home_ip, n_ip = _ips(rng, (n_cards, 2)), rng.integers(1, 3, n_cards)
+
+    # Households: members get the first member's home device and IP as their slot 0.
+    members = rng.permutation(n_cards)[: int(P_HOUSEHOLD * n_cards)]
+    i = 0
+    while i + 1 < len(members):
+        size = 3 if rng.random() < P_TRIPLE and i + 2 < len(members) else 2
+        head, rest = members[i], members[i + 1: i + size]
+        home_dev[rest, 0], home_ip[rest, 0] = home_dev[head, 0], home_ip[head, 0]
+        i += size
     public = _ips(rng, N_PUBLIC_IPS)
     public_w = 1 / np.arange(1, N_PUBLIC_IPS + 1); public_w /= public_w.sum()  # few huge, many small
 

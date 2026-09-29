@@ -125,3 +125,34 @@ def test_alerts_and_history(world):
     assert all(h["cc_num"] == hist[0]["cc_num"] for h in hist)  # one card only
     assert [h["ts"] for h in hist] == sorted([h["ts"] for h in hist], reverse=True)
     assert world["client"].get("/transactions/nope/history").status_code == 404
+
+
+def test_card_summary(world):
+    body = world["client"].get("/transactions/t5/card").json()
+    raw = world["raw"]
+    row = raw[raw["trans_num"] == "t5"].iloc[0]
+    ts = pd.to_datetime(raw["trans_date_trans_time"])
+    same_card = raw[(raw["cc_num"] == row["cc_num"]) & (ts <= pd.to_datetime(row["trans_date_trans_time"]))]
+    assert body["card_label"].endswith(str(row["cc_num"])[-4:])
+    assert body["txn_count"] == len(same_card)  # up to the alert, never after
+    assert world["client"].get("/transactions/nope/card").status_code == 404
+
+
+def test_decisions_round_trip(world):
+    c = world["client"]
+    assert c.get("/transactions/t7/decision").json()["action"] is None
+    assert c.post("/transactions/t7/decision", json={"action": "fraud"}).json()["action"] == "fraud"
+    assert c.post("/transactions/t7/decision", json={"action": "legit"}).json()["action"] == "legit"
+    assert c.get("/transactions/t7/decision").json()["action"] == "legit"      # replaced, not duplicated
+    assert c.post("/transactions/t7/decision", json={"action": None}).json()["action"] is None
+    assert c.post("/transactions/t7/decision", json={"action": "delete"}).status_code == 422
+    assert c.post("/transactions/nope/decision", json={"action": "fraud"}).status_code == 404
+
+
+def test_alert_status_filter(world):
+    c = world["client"]
+    first = c.get("/alerts?limit=1").json()["items"][0]["trans_num"]
+    c.post(f"/transactions/{first}/decision", json={"action": "escalated"})
+    all_, open_, done = (c.get(f"/alerts?status={s}").json()["total"] for s in ("all", "open", "decided"))
+    assert done >= 1 and open_ + done == all_
+    assert c.get("/alerts?status=decided").json()["items"][0]["decision"] == "escalated"

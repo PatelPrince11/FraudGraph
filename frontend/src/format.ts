@@ -6,11 +6,33 @@ export const when = (iso: string) =>
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
   });
 
+export const monthYear = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", { month: "short", year: "numeric" });
+
 /** Scores pile up near 1.0; show ">99.99%" instead of a misleading "100.00%". */
 export const pct = (x: number) =>
   x >= 0.9999 ? ">99.99%" : `${(100 * x).toFixed(x > 0.99 ? 2 : 1)}%`;
 
 export const category = (c: string) => c.replace("_", " ");
+
+export const merchantName = (m: string) => m.replace(/^fraud_/, "");
+
+export type Tier = { label: string; color: string };
+
+/** Three bands around the alert threshold, for color and wording only. */
+export function riskTier(score: number, threshold: number): Tier {
+  if (score >= threshold) return { label: "High risk", color: "text-risk" };
+  if (score >= 0.2) return { label: "Elevated", color: "text-warn" };
+  return { label: "Low risk", color: "text-ok" };
+}
+
+/** Great-circle distance in km (same formula as the backend's haversine). */
+export function km(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const r = (d: number) => (d * Math.PI) / 180;
+  const a = Math.sin(r(lat2 - lat1) / 2) ** 2
+    + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lon2 - lon1) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
+}
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 

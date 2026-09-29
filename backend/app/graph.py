@@ -10,16 +10,23 @@ Three rules keep the graph honest and small:
      by more than hub_limit cards in the window are shown but NOT expanded.
   3. CAP: stop adding cards at max_cards; the response says it was truncated.
 
-FOLLOW: by default only devices/IPs that carried at least one FLAGGED transaction are
-expanded ("follow the suspicious activity"). follow="all" expands every entity;
-scripts/eval_graph.py compares the two.
+FOLLOW decides which devices/IPs are expanded:
+  "flagged": carried at least one transaction the MODEL flagged.
+  "rule":    a DEVICE used by RULE_CARDS+ different cards within RULE_HOURS
+             (checked at every use up to t). Doesn't look at model scores at all,
+             so it still works when the model misses a ring. IPs are excluded:
+             offices, dorms and mobile carriers put many honest people on one IP.
+  "either":  flagged OR rule (default). "all": everything.
+scripts/eval_graph.py compares all four.
 
 Merchants are never expanded (every popular merchant is a hub). They appear only as
 leaves when 3+ cards in the graph have FLAGGED charges there. Weak signal: in Sparkov,
 fraud merchants are close to random, so some overlap happens by chance.
 """
 import time
+from collections import Counter
 from datetime import timedelta
+from itertools import groupby
 
 import networkx as nx
 from sqlalchemy import Connection, distinct, func, select
@@ -31,6 +38,37 @@ from app.tables import txn_entities as E
 HUB_LIMIT = 25
 MAX_CARDS = 60
 MIN_MERCHANT_CARDS = 3  # with 2, random overlap (birthday problem) made most of them noise
+RULE_CARDS = 3          # 2 flags every couple sharing a laptop; 4 missed most rings
+RULE_HOURS = 24
+FOLLOW_MODES = ("flagged", "rule", "either", "all")
+
+
+def device_bursts(conn: Connection, devices, start, end, hours: int = RULE_HOURS) -> dict:
+    """For each device: the most distinct cards seen within any `hours` window in [start, end].
+
+    Sliding window over the device's uses in time order: add the newest use, drop uses
+    older than `hours`, count distinct cards. O(uses) per device.
+    """
+    if not devices:
+        return {}
+    rows = conn.execute(select(E.c.entity, E.c.cc_num, E.c.ts)
+                        .where(E.c.kind == "device", E.c.entity.in_(devices),
+                               E.c.ts.between(start, end))
+                        .order_by(E.c.entity, E.c.ts)).all()
+    span, best = timedelta(hours=hours), {}
+    for entity, grp in groupby(rows, key=lambda r: r.entity):
+        uses, left, live, most = list(grp), 0, Counter(), 0
+        for r in uses:
+            live[r.cc_num] += 1
+            while uses[left].ts < r.ts - span:
+                old = uses[left].cc_num
+                live[old] -= 1
+                if not live[old]:
+                    del live[old]
+                left += 1
+            most = max(most, len(live))
+        best[entity] = most
+    return best
 
 
 class NotFound(Exception):
@@ -46,8 +84,10 @@ def mask(cc) -> str:
 
 
 def investigate(conn: Connection, trans_num: str, days: int = 30, rounds: int = 2,
-                follow: str = "flagged", hub_limit: int = HUB_LIMIT,
+                follow: str = "either", hub_limit: int = HUB_LIMIT,
                 max_cards: int = MAX_CARDS) -> dict:
+    if follow not in FOLLOW_MODES:
+        raise ValueError(f"follow must be one of {FOLLOW_MODES}")
     t0 = time.perf_counter()
     seed = conn.execute(select(T.c.cc_num, T.c.ts, T.c.merchant)
                         .where(T.c.trans_num == trans_num)).first()
@@ -84,8 +124,16 @@ def investigate(conn: Connection, trans_num: str, days: int = 30, rounds: int = 
         rows = usage(E.c.cc_num.in_(frontier))
         for r in rows:
             add_edge(r)
-        new = {r.entity for r in rows
-               if follow == "all" or r.flagged > 0} - seen
+        # Burst check for every device we can see (also shown in the UI, even if not followed).
+        bursts = device_bursts(conn, {r.entity for r in rows if r.kind == "device"} - seen,
+                               start, end)
+        for entity, most in bursts.items():
+            G.nodes[f"device:{entity}"].update(max_cards_24h=most, rule_hit=most >= RULE_CARDS)
+        model_hit = {r.entity for r in rows if r.flagged > 0}
+        rule_hit = {e for e, most in bursts.items() if most >= RULE_CARDS}
+        chosen = {"flagged": model_hit, "rule": rule_hit, "either": model_hit | rule_hit,
+                  "all": {r.entity for r in rows}}[follow]
+        new = chosen - seen
         seen |= new
         frontier = set()
         if not new:
@@ -165,7 +213,8 @@ def _to_json(G, seed, trans_num, start, end, hubs, truncated, t0) -> dict:
                         flagged_txns=a.get("flagged_txns", 0),
                         labeled_fraud_txns=a.get("labeled_fraud_txns", 0))
         elif a["kind"] in ("device", "ip"):
-            node.update(hub=name in hubs, cards_in_window=a.get("cards_in_window"))
+            node.update(hub=name in hubs, cards_in_window=a.get("cards_in_window"),
+                        rule_hit=a.get("rule_hit"), max_cards_24h=a.get("max_cards_24h"))
         nodes.append(node)
     edges = [{"source": u, "target": v, **d} for u, v, d in G.edges(data=True)]
 
@@ -178,6 +227,7 @@ def _to_json(G, seed, trans_num, start, end, hubs, truncated, t0) -> dict:
         "shared_entities": sum(1 for n in nodes if n["kind"] in ("device", "ip")
                                and G.degree(n["id"]) >= 2),
         "hubs_not_expanded": len(hubs),
+        "rule_devices": sum(1 for n in nodes if n.get("rule_hit")),
         "truncated": truncated,
         "latency_ms": round(1000 * (time.perf_counter() - t0), 2),
     }

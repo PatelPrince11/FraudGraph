@@ -1,11 +1,31 @@
 @import "tailwindcss";
 
+/* Style guide: near-black surfaces, one signal red, light grey text.
+   Every color is a token, so utilities read as bg-panel, text-muted, border-line... */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
-  --color-risk: #dc2626;
-  --color-missed: #d97706;
+
+  --color-ink: #0b0b0c;        /* page background */
+  --color-panel: #16161a;      /* cards */
+  --color-raised: #1e1e23;     /* hover, inputs, chips */
+  --color-line: #2a2a2f;       /* borders, gridlines */
+  --color-fg: #e6e6e8;         /* primary text */
+  --color-muted: #8b8b93;      /* secondary text */
+  --color-faint: #5c5c64;      /* tertiary text, axes */
+
+  --color-risk: #ff3b30;       /* the one alarm color */
+  --color-risk-deep: #7a0e13;
+  --color-ok: #30d158;
+  --color-warn: #ff9f0a;
+  --color-device: #5e9bff;
+  --color-ip: #4fd1c5;
+  --color-merchant: #bf5af2;
 }
 
 html, body, #root { height: 100%; }
-body { @apply bg-slate-50 text-slate-900 antialiased; }
+body { @apply bg-ink font-sans text-fg antialiased; }
+::selection { background: var(--color-risk-deep); }
+
+/* Thin dark scrollbars so panels don't show bright OS scrollbars. */
+* { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }

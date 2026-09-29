@@ -35,6 +35,18 @@ def conn(make_engine):
         (4, T0 - timedelta(days=40), "device", "D3", 0, "m"),
         (1, T0 - timedelta(days=1), "ip", "P", 0, "m"),
         *[(100 + k, T0 - timedelta(days=1), "ip", "P", 0, "m") for k in range(30)],
+        # Rule world, seed card 20, nothing flagged anywhere:
+        # D9: cards 20, 21, 22 within 24h -> rule hit. D8: 20, 25 close, 26 three days
+        # earlier -> at most 2 in any 24h -> no hit. P2: an IP with 3 cards -> IPs never count.
+        (20, T0, "device", "D9", 0, "m"),
+        (21, T0 - timedelta(hours=2), "device", "D9", 0, "m"),
+        (22, T0 - timedelta(hours=10), "device", "D9", 0, "m"),
+        (20, T0 - timedelta(hours=1), "device", "D8", 0, "m"),
+        (25, T0 - timedelta(hours=3), "device", "D8", 0, "m"),
+        (26, T0 - timedelta(days=3), "device", "D8", 0, "m"),
+        (20, T0 - timedelta(hours=1, minutes=5), "ip", "P2", 0, "m"),
+        (27, T0 - timedelta(hours=2), "ip", "P2", 0, "m"),
+        (28, T0 - timedelta(hours=3), "ip", "P2", 0, "m"),
     ]
     txns, ents, scs = [], [], []
     for i, (cc, when, kind, ent, flagged, merchant) in enumerate(uses):
@@ -119,3 +131,33 @@ def test_overlay_generator():
     fraud_dev = fraud_dev.merge(rings, on="cc_num")
     shared = fraud_dev[fraud_dev.ring_size > 1].groupby("entity").cc_num.nunique()
     assert (shared >= 2).any()
+
+    # Households: some LEGIT device is shared by 2+ cards (the rule's false-positive trap).
+    legit_dev = ents[(ents.kind == "device")
+                     & ents.trans_num.isin(txns.loc[txns.is_fraud == 0, "trans_num"])]
+    assert (legit_dev.groupby("entity").cc_num.nunique() >= 2).any()
+
+
+def seed_of(conn, cc):
+    from sqlalchemy import select as sel
+    return conn.execute(sel(transactions.c.trans_num)
+                        .where(transactions.c.cc_num == cc, transactions.c.ts == T0)).scalar_one()
+
+
+def test_device_rule_finds_links_the_model_never_flagged(conn):
+    seed = seed_of(conn, 20)
+    assert cards(investigate(conn, seed, follow="flagged")) == {20}      # model: nothing
+    assert cards(investigate(conn, seed, follow="rule")) == {20, 21, 22}  # D9 only
+    g = investigate(conn, seed, follow="either")
+    assert cards(g) == {20, 21, 22}
+    d9 = next(n for n in g["nodes"] if n["id"] == "device:D9")
+    d8 = next(n for n in g["nodes"] if n["id"] == "device:D8")
+    assert d9["rule_hit"] and d9["max_cards_24h"] == 3
+    assert not d8["rule_hit"] and d8["max_cards_24h"] == 2               # 26 was 3 days earlier
+    assert g["summary"]["rule_devices"] == 1
+    assert cards(investigate(conn, seed, follow="all")) >= {25, 26, 27, 28}  # IP P2 only here
+
+
+def test_unknown_follow_mode_rejected(conn):
+    with pytest.raises(ValueError):
+        investigate(conn, "t0", follow="everything")
