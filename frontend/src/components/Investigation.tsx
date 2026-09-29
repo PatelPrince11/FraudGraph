@@ -34,7 +34,8 @@ export default function Investigation({ transNum, showTruth, onDecided }: {
             rounds={rounds} setRounds={setRounds} showTruth={showTruth} />
         </div>
       </div>
-      <div className="sticky bottom-0 -mt-24 pb-1">
+      {/* Solid strip + fade behind the bar, so scrolled content can't show through below it. */}
+      <div className="sticky bottom-0 -mt-28 bg-gradient-to-t from-ink from-60% to-transparent pb-1 pt-6">
         <ActionBar transNum={transNum} risk={risk.data} graph={graph.data} onDecided={onDecided} />
       </div>
     </main>

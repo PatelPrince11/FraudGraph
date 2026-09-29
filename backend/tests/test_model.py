@@ -52,3 +52,26 @@ def test_train_end_to_end(tmp_path):
 
     reasons = model.explain(te[te.is_fraud == 1].head(1))[0]
     assert reasons and all(r["contribution"] > 0 for r in reasons)
+
+
+def test_explanations_merge_transforms_of_the_same_input(tmp_path):
+    raw = synthetic_raw()
+    feats = build_features(raw)
+    feats["split"] = np.where(feats["ts"] < feats["ts"].quantile(0.75), "train", "test")
+    feats.to_parquet(tmp_path / "f.parquet", index=False)
+    train.main(features_path=tmp_path / "f.parquet", model_dir=tmp_path / "models")
+    model = FraudModel.load(tmp_path / "models")
+
+    rows = feats[feats.is_fraud == 1].head(30)
+    for reasons in model.explain(rows, top_k=len(FEATURE_COLS)):
+        names = [r["feature"] for r in reasons]
+        assert "log_amt" not in names                     # folded into amt
+        assert len(names) == len(set(names))              # no reason twice
+
+    # Merging keeps the total exact: positive + negative parts still sum to the margin.
+    dm = xgb.DMatrix(rows[FEATURE_COLS], enable_categorical=True)
+    raw_c = model.booster.predict(dm, pred_contribs=True)
+    merged = raw_c.copy()
+    a, b = FEATURE_COLS.index("amt"), FEATURE_COLS.index("log_amt")
+    merged[:, a] += merged[:, b]; merged[:, b] = 0
+    np.testing.assert_allclose(merged.sum(axis=1), raw_c.sum(axis=1), rtol=1e-5, atol=1e-5)

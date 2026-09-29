@@ -31,6 +31,10 @@ LABELS = {
 }
 
 
+# Feature -> the feature it's a transform of. Shown as ONE reason in explanations.
+SAME_INPUT = {"log_amt": "amt"}
+
+
 @dataclass
 class FraudModel:
     booster: xgb.Booster
@@ -50,8 +54,17 @@ class FraudModel:
         return self.booster.predict(self._dmatrix(feats))
 
     def explain(self, feats: pd.DataFrame, top_k: int = 4) -> list[list[dict]]:
-        """Top-k features pushing each row toward fraud, with the actual feature value."""
+        """Top-k features pushing each row toward fraud, with the actual feature value.
+
+        Features that are the same input in another form (log_amt is just log(1 + amt))
+        split SHAP credit between them, which showed "Amount" twice. SHAP values add up,
+        so folding one into the other keeps the total exact and shows one reason.
+        """
         contribs = self.booster.predict(self._dmatrix(feats), pred_contribs=True)[:, :-1]  # drop bias
+        for child, parent in SAME_INPUT.items():
+            c, p = FEATURE_COLS.index(child), FEATURE_COLS.index(parent)
+            contribs[:, p] += contribs[:, c]
+            contribs[:, c] = 0.0
         out = []
         for i in range(len(feats)):
             order = np.argsort(-contribs[i])[:top_k]
