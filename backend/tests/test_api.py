@@ -89,3 +89,12 @@ def test_invalid_input_rejected(world):
     bad = {"cc_num": 1, "ts": "2020-01-01T00:00:00", "merchant": "m", "category": "travel",
            "amt": -5, "lat": 0, "long": 0, "merch_lat": 0, "merch_long": 0, "dob": "1980-01-01"}
     assert world["client"].post("/score", json=bad).status_code == 422
+
+
+def test_graph_endpoint(world):
+    body = world["client"].get("/transactions/t5/graph?days=30&rounds=2").json()
+    seed = [n for n in body["nodes"] if n.get("seed")]
+    assert len(seed) == 1 and seed[0]["hop"] == 0 and seed[0]["label"].startswith("••••")
+    assert body["summary"]["cards"] >= 1
+    assert world["client"].get("/transactions/t5/graph?follow=everything").status_code == 422
+    assert world["client"].get("/transactions/nope/graph").status_code == 404

@@ -67,7 +67,7 @@ def score(conn: Connection, model: FraudModel, txn: dict, seq: int | None = None
     prob = float(model.score(row)[0])
     return {
         "trans_num": txn["trans_num"],
-        "cc_num": int(txn["cc_num"]),
+        "cc_num": str(txn["cc_num"]),
         "score": round(prob, 6),
         "threshold": round(model.threshold, 6),
         "flagged": prob >= model.threshold,

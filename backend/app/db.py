@@ -2,7 +2,7 @@
 import io
 
 import pandas as pd
-from sqlalchemy import Engine, create_engine, insert
+from sqlalchemy import Engine, Table, create_engine, insert
 
 from app.config import DATABASE_URL
 from app.tables import COLUMNS, metadata, transactions
@@ -27,20 +27,29 @@ def reset_schema(engine: Engine) -> None:
     metadata.create_all(engine)
 
 
-def load_frame(engine: Engine, rows: pd.DataFrame, chunk: int = 200_000) -> None:
+def reset_tables(engine: Engine, tables: list[Table]) -> None:
+    """Drop and recreate only these tables (leaves `transactions` alone)."""
+    metadata.drop_all(engine, tables=tables)
+    metadata.create_all(engine, tables=tables)
+
+
+def load_frame(engine: Engine, rows: pd.DataFrame, table: Table = transactions,
+               chunk: int = 200_000) -> None:
     """Postgres: COPY (streams CSV straight into the table, ~50x faster than INSERTs).
     Anything else (SQLite in tests): plain batched INSERTs."""
+    columns = [c.name for c in table.columns]
+    rows = rows.reindex(columns=columns)  # optional columns missing -> NULL
     if engine.dialect.name != "postgresql":
         with engine.begin() as conn:
-            conn.execute(insert(transactions), rows.astype(object).where(rows.notna(), None)
+            conn.execute(insert(table), rows.astype(object).where(rows.notna(), None)
                          .to_dict("records"))
         return
 
     raw = engine.raw_connection()
     try:
         cur = raw.cursor()
-        cols = ", ".join('"' + c + '"' for c in COLUMNS)  # quoted: "first"/"last" are SQL words
-        sql = f"COPY transactions ({cols}) FROM STDIN WITH (FORMAT csv)"
+        cols = ", ".join('"' + c + '"' for c in columns)  # quoted: "first"/"last" are SQL words
+        sql = f"COPY {table.name} ({cols}) FROM STDIN WITH (FORMAT csv)"
         for start in range(0, len(rows), chunk):
             buf = io.StringIO()
             rows.iloc[start:start + chunk].to_csv(buf, index=False, header=False)

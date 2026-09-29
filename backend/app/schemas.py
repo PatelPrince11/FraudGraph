@@ -28,7 +28,9 @@ class Reason(BaseModel):
 
 class RiskOut(BaseModel):
     trans_num: str
-    cc_num: int
+    # String, not int: card numbers go up to ~5e18, and JavaScript numbers lose
+    # precision above 2^53 (~9e15). The browser would silently show the wrong card.
+    cc_num: str
     score: float
     threshold: float
     flagged: bool
@@ -37,3 +39,43 @@ class RiskOut(BaseModel):
     history_rows: int
     latency_ms: float
     label_is_fraud: bool | None = None
+
+
+class GraphNode(BaseModel):
+    id: str
+    kind: str                      # card | device | ip | merchant
+    label: str
+    hop: int | None
+    seed: bool | None = None
+    txn_count: int | None = None
+    flagged_txns: int | None = None
+    labeled_fraud_txns: int | None = None  # ground truth: demo/eval only, not known at time t
+    hub: bool | None = None
+    cards_in_window: int | None = None
+
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    kind: str
+    txn_count: int
+    flagged_txns: int
+
+
+class GraphSummary(BaseModel):
+    cards: int
+    flagged_cards: int
+    labeled_fraud_cards: int
+    shared_entities: int
+    hubs_not_expanded: int
+    truncated: bool
+    latency_ms: float
+
+
+class GraphOut(BaseModel):
+    trans_num: str
+    window_start: datetime
+    window_end: datetime
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+    summary: GraphSummary
