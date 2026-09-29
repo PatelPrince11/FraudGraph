@@ -62,3 +62,19 @@ export type Graph = {
     latency_ms: number;
   };
 };
+
+export type ReplayStatus = {
+  status: "idle" | "running" | "done" | "stopped";
+  sim_start: string | null;
+  sim_end: string | null;
+  sim_clock: string | null;
+  speed: number | null;
+  processed: number;
+  total: number;
+  flagged: number;
+  txn_per_sec: number | null;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  lag_s: number | null;
+  updated_at: string | null;
+};

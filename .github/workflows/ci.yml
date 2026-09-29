@@ -9,7 +9,7 @@ on:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -44,7 +44,7 @@ jobs:
           TEST_DATABASE_URL: postgresql+psycopg://fraud:fraud@localhost:5432/fraud_test
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -61,7 +61,7 @@ jobs:
 
   docker:
     needs: [backend, frontend]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       # Build only (no push): proves both Dockerfiles still work after every change.

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
+import type { ReplayStatus } from "./api";
 import AlertList from "./components/AlertList";
 import GraphView from "./components/GraphView";
 import HistoryTable from "./components/HistoryTable";
+import ReplayBar from "./components/ReplayBar";
 import RiskPanel from "./components/RiskPanel";
+import { useApi } from "./useApi";
 
 /** Selected transaction lives in the URL (#<trans_num>) so a view can be linked/refreshed. */
 function useSelection(): [string | null, (id: string) => void] {
@@ -24,6 +27,9 @@ function useSelection(): [string | null, (id: string) => void] {
 export default function App() {
   const [selected, select] = useSelection();
   const [showTruth, setShowTruth] = useState(false);
+  // Replay runs in a separate process; poll its progress every 1.5 s.
+  const replay = useApi<ReplayStatus>("/replay/status", { refreshMs: 1500 }).data;
+  const live = replay?.status === "running";
 
   return (
     <div className="flex h-full flex-col">
@@ -34,6 +40,7 @@ export default function App() {
             Transaction risk investigation · Sparkov test period (simulated data)
           </p>
         </div>
+        {replay && replay.status !== "idle" && <ReplayBar r={replay} />}
         <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-slate-600"
           title="Confirmed-fraud labels arrive weeks later via chargebacks. An analyst would not have them at alert time.">
           <input type="checkbox" checked={showTruth} onChange={(e) => setShowTruth(e.target.checked)} />
@@ -42,7 +49,8 @@ export default function App() {
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-[340px_1fr] gap-3 p-3">
-        <AlertList selected={selected} onSelect={select} showTruth={showTruth} />
+        <AlertList selected={selected} onSelect={select} showTruth={showTruth}
+          live={live} version={replay?.updated_at} />
         {selected ? (
           <main className="grid min-h-0 grid-cols-[minmax(340px,420px)_1fr] grid-rows-[minmax(0,1fr)_minmax(0,1.3fr)] gap-3">
             <RiskPanel transNum={selected} showTruth={showTruth} />

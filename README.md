@@ -57,6 +57,11 @@ flowchart LR
   serving can't drift apart. `scripts/check_parity.py` checks this on real data.
 - **Explanations**: exact TreeSHAP values from XGBoost (`pred_contribs`); a test checks that
   they sum to the model's raw output.
+- **Replay** (`scripts/replay.py`): plays the test period back as if transactions were
+  arriving live. Future transactions are held back, then each one is scored from the
+  card's history and only then saved, since saving first would make it part of its own
+  history (`tests/test_replay.py` shows which features that corrupts). The dashboard's
+  alert queue fills in as it runs. Replayed scores are checked against the offline scores.
 - **Relationship graph** (`app/graph.py`): expands from a card to the devices/IPs it used and
   on to other cards, limited to the 30 days before the alert (no future data). Entities
   shared by 25+ cards (public Wi-Fi, carrier IPs) are shown but not expanded. By default it
@@ -101,17 +106,21 @@ python -m scripts.check_parity
 python -m scripts.score_all
 python -m scripts.make_graph_overlay
 
-# 3. Whole stack (from repo root)
+# 3. Optional: live replay (from backend/). Watch the dashboard while it runs.
+python -m scripts.replay --hours 6 --speed 300   # 6 simulated hours in ~72 s
+python -m scripts.replay --reset                 # put everything back afterwards
+
+# 4. Whole stack (from repo root)
 docker compose up --build -d
 # dashboard: http://localhost:8080    API docs: http://localhost:8000/docs
 ```
 
 For development, run `uvicorn app.main:app --reload` in `backend/` and `npm run dev` in
-`frontend/` (http://localhost:5173) instead of step 3.
+`frontend/` (http://localhost:5173) instead of step 4.
 
 ## Tests and CI
 
-`pytest` in `backend/` runs 22 tests on synthetic data. They run on SQLite by default, or on
+`pytest` in `backend/` runs 27 tests on synthetic data. They run on SQLite by default, or on
 PostgreSQL with `TEST_DATABASE_URL` set. GitHub Actions runs both on every push, plus the
 frontend typecheck and build, and builds both Docker images. The Postgres run matters: it caught
 a bug SQLite can't (money stored as `NUMERIC(12,2)` rounds amounts, so unrounded test data

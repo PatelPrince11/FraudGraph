@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Alerts } from "../api";
 import { category, money, pct, when } from "../format";
@@ -7,13 +7,33 @@ import { Panel, Segmented, Status, Truth } from "./ui";
 
 const PAGE = 50;
 
-export default function AlertList({ selected, onSelect, showTruth }: {
+export default function AlertList({ selected, onSelect, showTruth, live, version }: {
   selected: string | null; onSelect: (id: string) => void; showTruth: boolean;
+  live: boolean; version?: string | null;
 }) {
   const [sort, setSort] = useState<"score" | "recent">("score");
   const [page, setPage] = useState(0);
+  // Refetch whenever the replay reports progress (`version` = its last update time).
   const { data, error, loading } = useApi<Alerts>(
-    `/alerts?sort=${sort}&limit=${PAGE}&offset=${page * PAGE}`);
+    `/alerts?sort=${sort}&limit=${PAGE}&offset=${page * PAGE}`, { refreshKey: version });
+
+  // A live feed reads newest-first.
+  useEffect(() => {
+    if (live) { setSort("recent"); setPage(0); }
+  }, [live]);
+
+  // Highlight alerts that appeared since the previous refresh.
+  const seen = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState<Set<string>>(new Set());
+  useEffect(() => { seen.current = null; }, [sort, page]);
+  useEffect(() => {
+    if (!data) return;
+    const ids = data.items.map((a) => a.trans_num);
+    if (seen.current === null) { seen.current = new Set(ids); setFresh(new Set()); return; }
+    const added = ids.filter((id) => !seen.current!.has(id));
+    added.forEach((id) => seen.current!.add(id));
+    if (added.length) setFresh(new Set(added));
+  }, [data]);
 
   // Open the top alert on first load so the screen is never empty.
   useEffect(() => {
@@ -31,12 +51,18 @@ export default function AlertList({ selected, onSelect, showTruth }: {
     >
       <div className="flex h-full flex-col">
         <Status loading={loading} error={error} />
+        {data && data.total === 0 && (
+          <p className="p-4 text-sm text-slate-400">
+            {live ? "No alerts yet. Waiting for transactions…" : "No alerts."}
+          </p>
+        )}
         <ul className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
           {data?.items.map((a) => (
             <li key={a.trans_num}>
               <button onClick={() => onSelect(a.trans_num)}
-                className={`flex w-full items-center gap-3 px-4 py-2.5 text-left ${
-                  a.trans_num === selected ? "bg-slate-100" : "hover:bg-slate-50"}`}>
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-1000 ${
+                  a.trans_num === selected ? "bg-slate-100"
+                    : fresh.has(a.trans_num) ? "bg-amber-50" : "hover:bg-slate-50"}`}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline gap-2">
                     <span className="font-mono text-xs text-slate-500">{a.card_label}</span>
