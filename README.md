@@ -2,16 +2,18 @@
 
 [![CI](https://github.com/PatelPrince11/FraudGraph/actions/workflows/ci.yml/badge.svg)](https://github.com/PatelPrince11/FraudGraph/actions/workflows/ci.yml)
 
-A fraud investigation tool for card transactions. It scores every transaction with a
-gradient-boosted model built on behavioural features, explains each alert, and links
+A fraud investigation tool for card transactions. It scores every transaction with an
+XGBoost model built on behavioural features, explains each alert with SHAP, and links
 cards through shared devices and IP addresses so an analyst can see whether one alert
-is part of a larger ring.
+is part of a larger ring. Built end to end: feature pipeline, model, API, database,
+streaming replay, graph analysis, dashboard, Docker and CI.
 
 ![Dashboard](docs/dashboard.png)
 
 **Demo flow:** pick an alert → see the risk score and the features that drove it → check
-the card's recent activity → open the relationship graph to find other cards that used
-the same devices or IPs.
+the card's recent activity and where it was used → open the relationship graph to find
+other cards on the same devices or IPs → record a decision (confirm fraud, escalate, or
+mark legitimate).
 
 ## Results
 
@@ -27,7 +29,8 @@ seen during training or threshold selection.
 | Online vs offline feature parity | 300 / 300 transactions identical on all 20 features |
 | Scoring latency, full path (DB + features + model + SHAP) | p50 32 ms, p95 57 ms |
 | Live replay, one simulated day (3,648 txns, score then save) | 32 txn/s, p95 40 ms, 3,648 / 3,648 match offline scores |
-| Relationship graph on injected rings (default mode) | 81% precision, 88% recall, p95 31 ms |
+| Relationship graph on injected rings (alerts + device rule) | 80% recall, 70% precision, p95 27 ms |
+| Same, with the model blinded to half the rings | device rule alone recovers 39% at 93% precision (model-driven: 0%) |
 
 PR-AUC is the headline instead of ROC-AUC (0.999): at 0.4% fraud, ROC-AUC barely moves
 between a good and a mediocre model. The amount-only baseline shows the gain comes from
@@ -57,7 +60,8 @@ flowchart LR
   history in Postgres using the same `build_features` function as training, so training and
   serving can't drift apart. `scripts/check_parity.py` checks this on real data.
 - **Explanations**: exact TreeSHAP values from XGBoost (`pred_contribs`); a test checks that
-  they sum to the model's raw output.
+  they sum to the model's raw output. Features that encode the same input (amount and
+  log-amount) split credit between them, so their contributions are summed into one reason.
 - **Replay** (`scripts/replay.py`): plays the test period back as if transactions were
   arriving live. Future transactions are held back, then each one is scored from the
   card's history and only then saved, since saving first would make it part of its own
@@ -84,9 +88,10 @@ flowchart LR
   unaffected. The graph metrics show the query logic works on rings with a known answer;
   they are not evidence about real-world ring detection.
 - **The device rule is a partial safety net.** In a stress test that hides entire rings from
-  the model, the model-driven graph finds none of them and the rule recovers only part.
-  Households of three sharing a laptop are its false positives (the synthetic data includes
-  them on purpose, so the rule can't look better than it is).
+  the model, the model-driven graph finds none of them and the rule recovers 39%. With the
+  current model it adds nothing measurable, because the model already flags almost every
+  ring card. Households of three sharing a laptop are its false positives (the synthetic
+  data includes them on purpose, so the rule can't look better than it is).
 - **The threshold drifts:** it was set on a period with 0.58% fraud and raised fewer alerts
   than budgeted on the test period (0.31% vs 0.5%). Production systems re-set it from recent traffic.
 - **Serving rebuilds features from full card history**, which is most of the scoring time and
@@ -127,7 +132,7 @@ For development, run `uvicorn app.main:app --reload` in `backend/` and `npm run 
 
 ## Tests and CI
 
-`pytest` in `backend/` runs 32 tests on synthetic data. They run on SQLite by default, or on
+`pytest` in `backend/` runs 33 tests on synthetic data. They run on SQLite by default, or on
 PostgreSQL with `TEST_DATABASE_URL` set. GitHub Actions runs both on every push, plus the
 frontend typecheck and build, and builds both Docker images. The Postgres run matters: it caught
 a bug SQLite can't (money stored as `NUMERIC(12,2)` rounds amounts, so unrounded test data
@@ -135,5 +140,5 @@ broke online/offline parity only on Postgres).
 
 ## Stack
 
-Python · pandas · XGBoost · scikit-learn · NetworkX · FastAPI · SQLAlchemy · PostgreSQL ·
-React · TypeScript · Tailwind · Vite · Docker · nginx · GitHub Actions
+Python · pandas · XGBoost · SHAP · scikit-learn · NetworkX · FastAPI · SQLAlchemy · PostgreSQL ·
+React · TypeScript · Tailwind · Vite · d3-geo · Docker · nginx · GitHub Actions
