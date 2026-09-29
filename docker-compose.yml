@@ -1,4 +1,7 @@
-# Step 3: only the database. The API and frontend get added in the Docker step.
+# Whole stack with one command:  docker compose up --build
+#   dashboard -> http://localhost:8080
+#   API docs  -> http://localhost:8000/docs
+# Data loading scripts still run from your Mac against localhost:5432 (see README).
 services:
   db:
     image: postgres:16
@@ -14,6 +17,28 @@ services:
       test: ["CMD-SHELL", "pg_isready -U fraud"]
       interval: 5s
       retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      # Inside the Docker network the database's hostname is its service name, "db".
+      # "localhost" here would mean the api container itself.
+      DATABASE_URL: postgresql+psycopg://fraud:fraud@db:5432/fraud
+    volumes:
+      - ./data/models:/models:ro   # read-only: the API must never change the model
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy   # wait until Postgres accepts connections
+
+  web:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy   # uses the HEALTHCHECK in backend/Dockerfile
 
 volumes:
   pgdata:

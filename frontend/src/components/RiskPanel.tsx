@@ -1,16 +1,16 @@
 import type { Risk } from "../api";
-import { featureValue, money, pct } from "../format";
+import { featureValue, pct } from "../format";
 import { useApi } from "../useApi";
 import { Panel, Status, Truth } from "./ui";
 
-// The handful of features an analyst reads first, in plain words.
-const FACTS: [string, string, (v: number) => string][] = [
-  ["amt_z_card", "Amount vs card's normal", (v) => `${v.toFixed(1)} σ`],
-  ["txn_count_24h", "Transactions, previous 24h", (v) => String(v)],
-  ["amt_sum_24h", "Spend, previous 24h", money],
-  ["secs_since_last", "Since previous transaction", (v) => `${(v / 3600).toFixed(1)} h`],
-  ["dist_home_km", "Distance from home", (v) => `${Math.round(v)} km`],
-  ["speed_kmh", "Implied travel speed", (v) => `${Math.round(v)} km/h`],
+// The handful of features an analyst reads first.
+const FACTS: [string, string][] = [
+  ["amt_z_card", "Amount vs card's normal"],
+  ["txn_count_24h", "Transactions, previous 24h"],
+  ["amt_sum_24h", "Spend, previous 24h"],
+  ["secs_since_last", "Since previous transaction"],
+  ["dist_home_km", "Distance from home"],
+  ["speed_kmh", "Implied travel speed"],
 ];
 
 export default function RiskPanel({ transNum, showTruth }: { transNum: string; showTruth: boolean }) {
@@ -64,15 +64,12 @@ export default function RiskPanel({ transNum, showTruth }: { transNum: string; s
           </div>
 
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            {FACTS.map(([key, label, fmt]) => {
-              const v = data.features[key];
-              return (
-                <div key={key} className="flex justify-between gap-2 border-b border-slate-100 pb-1">
-                  <dt className="text-slate-500">{label}</dt>
-                  <dd className="tabular-nums">{typeof v === "number" ? fmt(v) : "n/a"}</dd>
-                </div>
-              );
-            })}
+            {FACTS.map(([key, label]) => (
+              <div key={key} className="flex justify-between gap-2 border-b border-slate-100 pb-1">
+                <dt className="text-slate-500">{label}</dt>
+                <dd className="tabular-nums">{featureValue(key, data.features[key])}</dd>
+              </div>
+            ))}
           </dl>
         </div>
       )}

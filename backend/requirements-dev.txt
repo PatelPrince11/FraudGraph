@@ -1,0 +1,6 @@
+# Everything for training, scripts and tests. The API image does not need these.
+-r requirements.txt
+pyarrow==25.0.1
+scikit-learn==1.9.1
+pytest==9.1.1
+httpx==0.28.1

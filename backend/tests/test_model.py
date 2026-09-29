@@ -19,7 +19,9 @@ def synthetic_raw(n=6000, n_cards=60, seed=0):
         "trans_date_trans_time": ts.astype(str), "cc_num": rng.integers(0, n_cards, n),
         "merchant": rng.integers(0, 50, n).astype(str),
         "category": rng.choice(CATEGORIES, n),
-        "amt": np.where(fraud, rng.uniform(300, 1200, n), rng.exponential(50, n)),
+        # Rounded to cents like real data. Postgres stores amt as NUMERIC(12,2), so
+        # unrounded amounts would make online features differ from offline ones.
+        "amt": np.round(np.where(fraud, rng.uniform(300, 1200, n), rng.exponential(50, n)), 2),
         "lat": lat, "long": lon,
         "merch_lat": lat + rng.normal(0, 1, n) * far, "merch_long": lon + rng.normal(0, 1, n) * far,
         "dob": "1980-01-01", "trans_num": [f"t{i}" for i in range(n)],

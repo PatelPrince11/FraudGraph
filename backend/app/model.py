@@ -14,7 +14,7 @@ import xgboost as xgb
 
 from app.features import FEATURE_COLS
 
-MODEL_DIR = Path(__file__).resolve().parents[2] / "data" / "models"
+from app.config import MODEL_DIR  # noqa: E402  (re-exported for scripts)
 
 # Human-readable labels for the investigation UI.
 LABELS = {

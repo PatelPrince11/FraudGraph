@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
-from sqlalchemy import create_engine
 
 from app.db import load_frame, reset_schema
 from app.graph import investigate
@@ -21,7 +20,7 @@ def txn(i, cc, when, merchant="m", fraud=0):
 
 
 @pytest.fixture(scope="module")
-def conn(tmp_path_factory):
+def conn(make_engine):
     # Seed card 1. Cards 2 and 6 share device D1 (before t). Card 5 shares device D2 with
     # card 2 only (2 rounds away). Card 3 uses D1 only AFTER t (future). Card 4 shared
     # D3 with card 1 but 40 days ago (outside window). Cards 100-129 share public IP P.
@@ -43,7 +42,7 @@ def conn(tmp_path_factory):
         ents.append({"trans_num": f"t{i}", "kind": kind, "entity": ent, "cc_num": cc, "ts": when})
         scs.append({"trans_num": f"t{i}", "score": 0.99 if flagged else 0.01, "flagged": flagged})
 
-    engine = create_engine(f"sqlite:///{tmp_path_factory.mktemp('g') / 'g.db'}")
+    engine = make_engine()
     reset_schema(engine)
     load_frame(engine, pd.DataFrame(txns))
     load_frame(engine, pd.DataFrame(ents), table=txn_entities)

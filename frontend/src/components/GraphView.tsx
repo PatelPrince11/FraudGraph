@@ -55,6 +55,7 @@ export default function GraphView({ transNum, showTruth }: { transNum: string; s
   const [follow, setFollow] = useState<"flagged" | "all">("flagged");
   const [rounds, setRounds] = useState(2);
   const [picked, setPicked] = useState<GraphNode | null>(null);
+  const [showLeaves, setShowLeaves] = useState(false);
   const { data, error, loading } = useApi<Graph>(
     `/transactions/${transNum}/graph?follow=${follow}&rounds=${rounds}`);
 
@@ -64,10 +65,36 @@ export default function GraphView({ transNum, showTruth }: { transNum: string; s
 
   // The library MUTATES node objects (adds x, y, vx, vy), so hand it copies,
   // and only make new copies when the data actually changes.
-  const graphData = useMemo(() => ({
-    nodes: (data?.nodes ?? []).map((n) => ({ ...n })) as N[],
-    links: (data?.edges ?? []).map((e) => ({ ...e })) as L[],
-  }), [data]);
+  //
+  // By default, drop devices/IPs that touch only ONE card in this graph. They link
+  // nothing to anything, and every card brings 3-8 of them (home phone, home wifi...),
+  // which buried the actual links. Hubs stay: "used a public IP" is informative.
+  const graphData = useMemo(() => {
+    const nodes = data?.nodes ?? [];
+    const edges = data?.edges ?? [];
+    const degree = new Map<string, number>();
+    for (const e of edges) {
+      degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+      degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
+    }
+    const keep = new Set(nodes.filter((n) =>
+      showLeaves || n.kind === "card" || n.kind === "merchant" || n.hub || (degree.get(n.id) ?? 0) >= 2,
+    ).map((n) => n.id));
+    return {
+      nodes: nodes.filter((n) => keep.has(n.id)).map((n) => ({ ...n })) as N[],
+      links: edges.filter((e) => keep.has(e.source) && keep.has(e.target)).map((e) => ({ ...e })) as L[],
+      hidden: nodes.length - keep.size,
+    };
+  }, [data, showLeaves]);
+
+  // Spread the layout out: default d3 forces pack nodes so tightly that labels overlap.
+  useEffect(() => {
+    const g = fg.current;
+    if (!g) return;
+    g.d3Force("charge")?.strength(-90);
+    g.d3Force("link")?.distance(35);
+    g.d3ReheatSimulation();
+  }, [graphData]);
 
   useEffect(() => setPicked(null), [transNum, follow, rounds]);
 
@@ -122,7 +149,11 @@ export default function GraphView({ transNum, showTruth }: { transNum: string; s
             <span><b className="text-slate-900">{s.hubs_not_expanded}</b> hubs not expanded</span>
             {showTruth && <span><b className="text-slate-900">{s.labeled_fraud_cards}</b> labeled fraud</span>}
             {s.truncated && <span className="text-amber-700">truncated at card limit</span>}
-            <span className="ml-auto text-slate-400">last 30 days · {s.latency_ms.toFixed(0)} ms</span>
+            <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-slate-500">
+              <input type="checkbox" checked={showLeaves} onChange={(e) => setShowLeaves(e.target.checked)} />
+              show {graphData.hidden} single-card devices/IPs
+            </label>
+            <span className="text-slate-400">last 30 days · {s.latency_ms.toFixed(0)} ms</span>
           </div>
         )}
         <div ref={box} className="relative min-h-0 flex-1">

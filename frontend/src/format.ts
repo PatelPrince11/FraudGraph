@@ -6,19 +6,33 @@ export const when = (iso: string) =>
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
   });
 
-// Two decimals near the top, or every alert would read "100.0%".
-export const pct = (x: number) => `${(100 * x).toFixed(x > 0.99 ? 2 : 1)}%`;
+/** Scores pile up near 1.0; show ">99.99%" instead of a misleading "100.00%". */
+export const pct = (x: number) =>
+  x >= 0.9999 ? ">99.99%" : `${(100 * x).toFixed(x > 0.99 ? 2 : 1)}%`;
 
 export const category = (c: string) => c.replace("_", " ");
 
-const MONEY_FEATURES = new Set(["amt", "amt_sum_1h", "amt_sum_24h", "amt_sum_7D"]);
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-/** Human-readable value for a model feature. */
+// How to show each model feature to a person. Anything not listed falls back to the raw number.
+const FORMAT: Record<string, (v: number, amt?: number) => string> = {
+  amt: money,
+  log_amt: (_, amt) => (amt === undefined ? "n/a" : money(amt)), // log(1 + amount) -> the amount
+  amt_sum_1h: money, amt_sum_24h: money, amt_sum_7D: money,
+  amt_z_card: (v) => `${v.toFixed(1)} σ`,
+  amt_ratio_card: (v) => `${v.toFixed(1)}×`,
+  secs_since_last: (v) => (v < 3600 ? `${Math.round(v / 60)} min` : `${(v / 3600).toFixed(1)} h`),
+  dist_home_km: (v) => `${Math.round(v)} km`,
+  dist_prev_km: (v) => `${Math.round(v)} km`,
+  speed_kmh: (v) => `${Math.round(v)} km/h`,
+  is_new_merchant: (v) => (v ? "yes" : "no"),
+  hour: (v) => `${String(v).padStart(2, "0")}:00`,
+  dow: (v) => DAYS[v] ?? String(v),
+  age: (v) => `${Math.floor(v)} yrs`,
+};
+
 export function featureValue(feature: string, v: number | string | null, amt?: number): string {
   if (v === null) return "n/a";
-  // log_amt is log(1 + amount): show the dollar amount a person understands.
-  if (feature === "log_amt" && amt !== undefined) return money(amt);
-  if (MONEY_FEATURES.has(feature) && typeof v === "number") return money(v);
   if (typeof v === "string") return category(v);
-  return Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 0 }) : String(v);
+  return FORMAT[feature]?.(v, amt) ?? v.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }

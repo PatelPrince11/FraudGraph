@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import func, select
 
 from app.db import load_frame, reset_schema, to_rows
 from app.features import build_features
@@ -17,7 +17,7 @@ from tests.test_model import synthetic_raw
 
 
 @pytest.fixture(scope="module")
-def world(tmp_path_factory):
+def world(tmp_path_factory, make_engine):
     tmp = tmp_path_factory.mktemp("api")
     raw = synthetic_raw(n=3000, n_cards=30)
     # Force a same-card, same-timestamp tie: the case seq exists for.
@@ -31,7 +31,7 @@ def world(tmp_path_factory):
     offline.to_parquet(tmp / "features.parquet", index=False)
     train.main(features_path=tmp / "features.parquet", model_dir=tmp / "models")
 
-    engine = create_engine(f"sqlite:///{tmp / 'test.db'}")
+    engine = make_engine()
     reset_schema(engine)
     load_frame(engine, to_rows(raw))
 
