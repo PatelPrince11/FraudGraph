@@ -10,7 +10,9 @@ and (coming) links accounts, devices, IPs and merchants in a relationship graph.
       -> data/processed/features.parquet
       -> scripts/train.py            (uses app/model.py)
       -> data/models/model.json + meta.json + metrics.json
-      -> [next] FastAPI -> React dashboard
+      -> scripts/load_db.py -> PostgreSQL (card history for online scoring)
+      -> app/main.py (FastAPI): rebuilds features from history, scores, explains
+      -> [next] relationship graph -> React dashboard
 
 ## Setup
 
@@ -24,6 +26,11 @@ and (coming) links accounts, devices, IPs and merchants in a relationship graph.
 
     python -m scripts.build_features
     python -m scripts.train
+    docker compose up -d db          # from repo root
+    cp .env.example .env             # from backend/
+    python -m scripts.load_db
+    python -m scripts.check_parity   # online features == offline features
+    uvicorn app.main:app --reload    # API docs at http://127.0.0.1:8000/docs
 
 Always run commands from `backend/`.
 
