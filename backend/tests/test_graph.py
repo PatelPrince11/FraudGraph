@@ -22,12 +22,13 @@ def txn(i, cc, when, merchant="m", fraud=0):
 
 @pytest.fixture(scope="module")
 def conn(tmp_path_factory):
-    # Seed card 1. Card 2 shares device D1 (before t). Card 5 shares device D2 with
+    # Seed card 1. Cards 2 and 6 share device D1 (before t). Card 5 shares device D2 with
     # card 2 only (2 rounds away). Card 3 uses D1 only AFTER t (future). Card 4 shared
     # D3 with card 1 but 40 days ago (outside window). Cards 100-129 share public IP P.
     uses = [  # (cc, when, kind, entity, flagged, merchant)
         (1, T0, "device", "D1", 1, "shop_x"),
         (2, T0 - timedelta(days=2), "device", "D1", 1, "shop_x"),
+        (6, T0 - timedelta(days=5), "device", "D1", 1, "shop_x"),
         (2, T0 - timedelta(days=3), "device", "D2", 0, "m"),
         (5, T0 - timedelta(days=4), "device", "D2", 0, "m"),
         (3, T0 + timedelta(days=1), "device", "D1", 1, "m"),
@@ -63,12 +64,12 @@ def test_finds_shared_device_and_respects_window(conn):
 
 
 def test_rounds_limit_depth(conn):
-    assert cards(investigate(conn, "t0", days=30, rounds=1, follow="all")) == {1, 2}
+    assert cards(investigate(conn, "t0", days=30, rounds=1, follow="all")) == {1, 2, 6}
 
 
 def test_follow_flagged_skips_unflagged_links(conn):
     # D2 links card 2 -> card 5, but no flagged charge ever used D2.
-    assert cards(investigate(conn, "t0", days=30, rounds=2, follow="flagged")) == {1, 2}
+    assert cards(investigate(conn, "t0", days=30, rounds=2, follow="flagged")) == {1, 2, 6}
 
 
 def test_public_ip_is_a_hub_not_expanded(conn):
@@ -79,10 +80,17 @@ def test_public_ip_is_a_hub_not_expanded(conn):
     assert g["summary"]["hubs_not_expanded"] == 1
 
 
+def test_every_entity_gets_a_card_count(conn):
+    g = investigate(conn, "t0", days=30, rounds=2, follow="flagged")
+    ents = [n for n in g["nodes"] if n["kind"] in ("device", "ip")]
+    assert ents and all(n["cards_in_window"] is not None for n in ents)
+    assert next(n for n in ents if n["id"] == "device:D1")["cards_in_window"] == 3  # not card 3
+
+
 def test_common_flagged_merchant_and_masking(conn):
     g = investigate(conn, "t0", days=30, rounds=2)
     ids = {n["id"] for n in g["nodes"]}
-    assert "merchant:shop_x" in ids        # flagged charges by cards 1 and 2
+    assert "merchant:shop_x" in ids        # flagged charges by cards 1, 2 and 6
     assert "merchant:m" not in ids         # no flagged charges shared there
     seed = next(n for n in g["nodes"] if n.get("seed"))
     assert seed["label"] == "•••• 1" and seed["hop"] == 0

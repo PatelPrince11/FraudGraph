@@ -98,3 +98,30 @@ def test_graph_endpoint(world):
     assert body["summary"]["cards"] >= 1
     assert world["client"].get("/transactions/t5/graph?follow=everything").status_code == 422
     assert world["client"].get("/transactions/nope/graph").status_code == 404
+
+
+def test_alerts_and_history(world):
+    from app.db import load_frame, reset_tables
+    from app.model import FraudModel  # noqa: F401
+    from app.tables import scores
+    raw = world["raw"]
+    # Score table: mark every 10th test transaction flagged.
+    test_rows = raw[raw["split"] == "test"].reset_index(drop=True)
+    sc = pd.DataFrame({"trans_num": test_rows["trans_num"],
+                       "score": np.linspace(0.99, 0.01, len(test_rows)),
+                       "flagged": (np.arange(len(test_rows)) % 10 == 0).astype(int)})
+    reset_tables(world["engine"], [scores])
+    load_frame(world["engine"], sc, table=scores)
+
+    body = world["client"].get("/alerts?limit=5").json()
+    assert body["total"] == int(sc["flagged"].sum())
+    got = [i["score"] for i in body["items"]]
+    assert got == sorted(got, reverse=True) and all(i["flagged"] for i in body["items"])
+    assert world["client"].get("/alerts?split=everything").status_code == 422
+
+    seed = body["items"][0]["trans_num"]
+    hist = world["client"].get(f"/transactions/{seed}/history?limit=5").json()
+    assert hist[0]["trans_num"] == seed                       # newest first, starts at seed
+    assert all(h["cc_num"] == hist[0]["cc_num"] for h in hist)  # one card only
+    assert [h["ts"] for h in hist] == sorted([h["ts"] for h in hist], reverse=True)
+    assert world["client"].get("/transactions/nope/history").status_code == 404

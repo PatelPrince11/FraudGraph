@@ -79,3 +79,21 @@ class GraphOut(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     summary: GraphSummary
+
+
+class TxnRow(BaseModel):
+    trans_num: str
+    ts: datetime
+    cc_num: str
+    card_label: str
+    amt: float
+    category: str
+    merchant: str
+    score: float | None
+    flagged: bool
+    label_is_fraud: bool | None
+
+
+class AlertsOut(BaseModel):
+    total: int
+    items: list[TxnRow]

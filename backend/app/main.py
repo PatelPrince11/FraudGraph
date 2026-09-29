@@ -9,10 +9,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query, Request
 from sqlalchemy import Engine, text
 
-from app import graph, service
+from app import graph, queries, service
 from app.db import get_engine
 from app.model import FraudModel
-from app.schemas import GraphOut, RiskOut, TransactionIn
+from app.schemas import AlertsOut, GraphOut, RiskOut, TransactionIn, TxnRow
 
 
 def create_app(engine: Engine | None = None, model: FraudModel | None = None) -> FastAPI:
@@ -58,6 +58,23 @@ def create_app(engine: Engine | None = None, model: FraudModel | None = None) ->
                                          follow=follow)
             except graph.NotFound:
                 raise HTTPException(404, f"transaction {trans_num} not found")
+
+    @app.get("/alerts", response_model=AlertsOut)
+    def alert_queue(request: Request,
+                    split: str = Query("test", pattern="^(train|test)$"),
+                    sort: str = Query("score", pattern="^(score|recent)$"),
+                    limit: int = Query(50, ge=1, le=200),
+                    offset: int = Query(0, ge=0)):
+        with request.app.state.engine.connect() as conn:
+            return queries.alerts(conn, split=split, sort=sort, limit=limit, offset=offset)
+
+    @app.get("/transactions/{trans_num}/history", response_model=list[TxnRow])
+    def history(trans_num: str, request: Request, limit: int = Query(15, ge=1, le=100)):
+        with request.app.state.engine.connect() as conn:
+            rows = queries.card_history(conn, trans_num, limit=limit)
+        if rows is None:
+            raise HTTPException(404, f"transaction {trans_num} not found")
+        return rows
 
     return app
 

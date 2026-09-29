@@ -42,6 +42,9 @@ scores = Table(
     Column("trans_num", String(32), primary_key=True),
     Column("score", Float, nullable=False),
     Column("flagged", SmallInteger, nullable=False),  # 1 if score >= model threshold
+    # The alert queue asks "flagged transactions, highest score first": this index
+    # answers it without reading all 1.85M rows.
+    Index("ix_scores_flagged_score", "flagged", "score"),
 )
 
 # --- SYNTHETIC overlay (scripts/make_graph_overlay.py) -------------------------

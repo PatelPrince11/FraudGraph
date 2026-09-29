@@ -15,7 +15,8 @@ expanded ("follow the suspicious activity"). follow="all" expands every entity;
 scripts/eval_graph.py compares the two.
 
 Merchants are never expanded (every popular merchant is a hub). They appear only as
-leaves when 2+ cards in the graph have FLAGGED charges there ("common point").
+leaves when 3+ cards in the graph have FLAGGED charges there. Weak signal: in Sparkov,
+fraud merchants are close to random, so some overlap happens by chance.
 """
 import time
 from datetime import timedelta
@@ -29,6 +30,7 @@ from app.tables import txn_entities as E
 
 HUB_LIMIT = 25
 MAX_CARDS = 60
+MIN_MERCHANT_CARDS = 3  # with 2, random overlap (birthday problem) made most of them noise
 
 
 class NotFound(Exception):
@@ -109,6 +111,17 @@ def investigate(conn: Connection, trans_num: str, days: int = 30, rounds: int = 
                 G.add_node(card_node(r.cc_num), kind="card", cc_num=r.cc_num)
             add_edge(r)
 
+    # How many cards used each device/IP in the window, for entities we didn't expand
+    # too (the UI would otherwise show blanks). One query for all of them.
+    missing = [n.split(":", 1)[1] for n, a in G.nodes(data=True)
+               if a["kind"] in ("device", "ip") and "cards_in_window" not in a]
+    if missing:
+        for entity, kind, d in conn.execute(
+                select(E.c.entity, E.c.kind, func.count(distinct(E.c.cc_num)))
+                .where(in_window, E.c.entity.in_(missing))
+                .group_by(E.c.entity, E.c.kind)).all():
+            G.nodes[f"{kind}:{entity}"]["cards_in_window"] = int(d)
+
     # Card-level facts in the window.
     stats = conn.execute(
         select(T.c.cc_num, func.count().label("n"), flagged_sum.label("flagged"),
@@ -120,7 +133,7 @@ def investigate(conn: Connection, trans_num: str, days: int = 30, rounds: int = 
         G.nodes[card_node(r.cc_num)].update(
             txn_count=int(r.n), flagged_txns=int(r.flagged), labeled_fraud_txns=int(r.fraud))
 
-    # Merchants where 2+ graph cards had flagged charges.
+    # Merchants where MIN_MERCHANT_CARDS+ graph cards had flagged charges.
     rows = conn.execute(
         select(T.c.cc_num, T.c.merchant, func.count().label("n"))
         .select_from(T.join(S, S.c.trans_num == T.c.trans_num))
@@ -130,7 +143,7 @@ def investigate(conn: Connection, trans_num: str, days: int = 30, rounds: int = 
     for r in rows:
         by_merchant.setdefault(r.merchant, []).append(r)
     for merchant, rs in by_merchant.items():
-        if len(rs) >= 2:
+        if len(rs) >= MIN_MERCHANT_CARDS:
             G.add_node(f"merchant:{merchant}", kind="merchant")
             for r in rs:
                 G.add_edge(card_node(r.cc_num), f"merchant:{merchant}", kind="flagged_at",
